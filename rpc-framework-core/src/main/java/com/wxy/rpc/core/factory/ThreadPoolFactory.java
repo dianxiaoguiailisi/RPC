@@ -22,6 +22,9 @@ public class ThreadPoolFactory {
         threadPoolConfig = new ThreadPoolConfig();
     }
 
+    /** 
+     * @return ThreadPoolExecutor
+     */
     public static ThreadPoolExecutor getDefaultThreadPool() {
         return new ThreadPoolExecutor(threadPoolConfig.getCorePoolSize(),
                 threadPoolConfig.getMaximumPoolSize(),

@@ -3,12 +3,15 @@ package com.wxy.rpc.server.config;
 import com.wxy.rpc.core.registry.ServiceRegistry;
 import com.wxy.rpc.core.registry.nacos.NacosServiceRegistry;
 import com.wxy.rpc.core.registry.zk.ZookeeperServiceRegistry;
+import com.wxy.rpc.server.ratelimit.RateLimiterFactory;
 import com.wxy.rpc.server.spring.RpcServerBeanPostProcessor;
+import com.wxy.rpc.server.threadpool.BusinessThreadPoolManager;
 import com.wxy.rpc.server.transport.RpcServer;
 import com.wxy.rpc.server.transport.http.HttpRpcServer;
 import com.wxy.rpc.server.transport.netty.NettyRpcServer;
 import com.wxy.rpc.server.transport.socket.SocketRpcServer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -32,6 +35,34 @@ public class RpcServerAutoConfiguration {
 
     @Autowired
     RpcServerProperties properties;
+
+    /**
+     * 初始化服务端限流器。
+     *
+     * RpcRequestHandler 通过 SingletonFactory 创建，不直接受 Spring 管理，
+     * 所以这里使用静态工厂把限流配置传递给请求处理链路。
+     */
+    @Bean
+    public Object rateLimiterInitializer() {
+        RateLimiterFactory.init(properties);
+        return new Object();
+    }
+
+    /**
+     * 初始化服务端业务线程池。
+     *
+     * NettyRpcRequestHandler 不是由 Spring 直接创建，所以这里通过静态管理器保存线程池实例。
+     */
+    @Bean
+    public Object businessThreadPoolInitializer() {
+        BusinessThreadPoolManager.init(properties);
+        return new Object();
+    }
+
+    @Bean
+    public DisposableBean businessThreadPoolDisposableBean() {
+        return BusinessThreadPoolManager::shutdown;
+    }
 
     /**
      * 创建 ServiceRegistry 实例 bean，当没有配置时默认使用 zookeeper 作为配置中心

@@ -36,6 +36,10 @@ public class JsonSerialization implements Serialization {
         }
     }
 
+    /** 
+     * @param object
+     * @return byte[]
+     */
     @Override
     public <T> byte[] serialize(T object) {
         try {
@@ -47,6 +51,11 @@ public class JsonSerialization implements Serialization {
         }
     }
 
+    /** 
+     * @param clazz
+     * @param bytes
+     * @return T
+     */
     @Override
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {

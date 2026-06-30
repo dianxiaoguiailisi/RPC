@@ -19,6 +19,11 @@ public class RandomLoadBalance extends AbstractLoadBalance {
 
     final Random random = new Random();
 
+    /** 
+     * @param invokers
+     * @param request
+     * @return ServiceInfo
+     */
     @Override
     protected ServiceInfo doSelect(List<ServiceInfo> invokers, RpcRequest request) {
         return invokers.get(random.nextInt(invokers.size()));

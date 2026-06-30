@@ -1,10 +1,7 @@
 package com.wxy.rpc.api.service;
 
 /**
- * @author Wuxy
- * @version 1.0
- * @ClassName AbstractService
- * @since 2023/2/7 9:56
+ * 抽象服务示例：用来测试服务接口不只是普通 interface，也可以是抽象类形式。
  */
 public abstract class AbstractService {
 

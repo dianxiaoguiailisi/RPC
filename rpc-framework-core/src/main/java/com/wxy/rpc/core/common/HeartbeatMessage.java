@@ -6,12 +6,7 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * 心跳检查消息类
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName HeartbeatMessage
- * @Date 2023/1/7 18:31
+ * 心跳检查消息类：用于 Netty 心跳检测
  */
 @Data
 @Builder

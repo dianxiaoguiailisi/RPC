@@ -33,6 +33,10 @@ public class KryoSerialization implements Serialization {
         return kryo;
     });
 
+    /** 
+     * @param object
+     * @return byte[]
+     */
     @Override
     public <T> byte[] serialize(T object) {
         try {
@@ -48,6 +52,11 @@ public class KryoSerialization implements Serialization {
         }
     }
 
+    /** 
+     * @param clazz
+     * @param bytes
+     * @return T
+     */
     @Override
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {

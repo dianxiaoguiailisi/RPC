@@ -22,6 +22,10 @@ public class ProtostuffSerialization implements Serialization {
      */
     private final LinkedBuffer BUFFER = LinkedBuffer.allocate(LinkedBuffer.DEFAULT_BUFFER_SIZE);
 
+    /** 
+     * @param object
+     * @return byte[]
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public <T> byte[] serialize(T object) {
@@ -36,6 +40,11 @@ public class ProtostuffSerialization implements Serialization {
         }
     }
 
+    /** 
+     * @param clazz
+     * @param bytes
+     * @return T
+     */
     @Override
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {

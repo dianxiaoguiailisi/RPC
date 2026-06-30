@@ -47,6 +47,11 @@
             <version>${tomcat.version}</version>
             <optional>true</optional>
         </dependency>
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>${jedis.version}</version>
+        </dependency>
         <!-- 一些可选的，但强烈建议使用的注解解析器 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

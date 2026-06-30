@@ -19,6 +19,11 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
 
     private static final AtomicInteger atomicInteger = new AtomicInteger(0);
 
+    /** 
+     * @param invokers
+     * @param request
+     * @return ServiceInfo
+     */
     @Override
     public ServiceInfo doSelect(List<ServiceInfo> invokers, RpcRequest request) {
         return invokers.get(getAndIncrement() % invokers.size());

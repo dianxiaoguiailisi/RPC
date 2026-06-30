@@ -4,11 +4,6 @@ import java.lang.annotation.*;
 
 /**
  * Rpc Service 注解，标注该类为服务实现类
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName RpcService
- * @Date 2023/1/6 17:15
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

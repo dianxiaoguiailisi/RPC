@@ -28,6 +28,11 @@ public class ConsistentHashLoadBalance extends AbstractLoadBalance {
 
     private final Map<String, ConsistentHashSelector> selectors = new ConcurrentHashMap<>();
 
+    /** 
+     * @param invokers
+     * @param request
+     * @return ServiceInfo
+     */
     @Override
     public ServiceInfo doSelect(List<ServiceInfo> invokers, RpcRequest request) {
         // 得到请求的方法名称

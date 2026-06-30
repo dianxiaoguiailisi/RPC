@@ -1,6 +1,7 @@
 package com.wxy.rpc.client.transport.netty;
 
 import com.wxy.rpc.client.common.RequestMetadata;
+import com.wxy.rpc.client.future.RpcPromise;
 import com.wxy.rpc.client.handler.RpcResponseHandler;
 import com.wxy.rpc.client.transport.RpcClient;
 import com.wxy.rpc.core.codec.RpcFrameDecoder;
@@ -14,8 +15,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
-import io.netty.util.concurrent.DefaultPromise;
-import io.netty.util.concurrent.Promise;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 
@@ -26,11 +25,6 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * 基于 Netty 实现的 Rpc Client 类
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName NettyRpcClient
- * @Date 2023/1/6 17:28
  */
 @Slf4j
 public class NettyRpcClient implements RpcClient {
@@ -75,50 +69,68 @@ public class NettyRpcClient implements RpcClient {
     @SneakyThrows
     @Override
     public RpcMessage sendRpcRequest(RequestMetadata requestMetadata) {
-        // 构建接收返回结果的 promise
-        Promise<RpcMessage> promise;
+        RpcPromise<RpcMessage> responseFuture = sendRpcRequestAsync(requestMetadata);
+        Integer timeout = requestMetadata.getTimeout();
+        try {
+            if (timeout == null || timeout <= 0) {
+                return responseFuture.get();
+            }
+            return responseFuture.get(timeout, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            int sequenceId = requestMetadata.getRpcMessage().getHeader().getSequenceId();
+            RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
+            responseFuture.setFailure(e);
+            throw new RpcException(String.format("The Remote procedure call exceeded the specified timeout of %dms.",
+                    timeout), e);
+        } catch (Exception e) {
+            throw new RpcException(e);
+        }
+    }
+
+    /**
+     * 异步发送 RPC 请求。
+     *
+     * Netty 的网络发送本身是异步的，这里用 RpcPromise 承接响应结果。
+     * 请求发送前会把 sequenceId 和 Promise 放入未完成请求表，响应回来后由 RpcResponseHandler 完成对应 Promise。
+     *
+     * @param requestMetadata rpc 请求元数据
+     * @return 响应结果 Promise
+     */
+    @Override
+    public RpcPromise<RpcMessage> sendRpcRequestAsync(RequestMetadata requestMetadata) {
+        RpcPromise<RpcMessage> promise = new RpcPromise<>();
         // 获取 Channel 对象
         Channel channel = getChannel(new InetSocketAddress(requestMetadata.getServerAddr(), requestMetadata.getPort()));
         if (channel.isActive()) {
-            // 创建 promise 来接受结果         指定执行完成通知的线程
-            promise = new DefaultPromise<>(channel.eventLoop());
             // 获取请求的序列号 ID
             int sequenceId = requestMetadata.getRpcMessage().getHeader().getSequenceId();
             // 存入还未处理的请求
             RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.put(sequenceId, promise);
+            Integer timeout = requestMetadata.getTimeout();
+            if (timeout != null && timeout > 0) {
+                channel.eventLoop().schedule(() -> {
+                    TimeoutException timeoutException = new TimeoutException(String.format("The Remote procedure call exceeded the " +
+                            "specified timeout of %dms.", timeout));
+                    if (promise.setFailure(timeoutException)) {
+                        RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
+                    }
+                }, timeout, TimeUnit.MILLISECONDS);
+            }
             // 发送数据并监听发送状态
             channel.writeAndFlush(requestMetadata.getRpcMessage()).addListener((ChannelFutureListener) future -> {
                 if (future.isSuccess()) {
                     log.debug("The client send the message successfully, msg: [{}].", requestMetadata);
                 } else {
                     future.channel().close();
+                    RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
                     promise.setFailure(future.cause());
                     log.error("The client send the message failed.", future.cause());
                 }
             });
-
-            Integer timeout = requestMetadata.getTimeout();
-
-            // 等待结果返回（让出cpu资源，同步阻塞调用线程main，其他线程去执行获取操作（eventLoop））
-            // 如果没有指定超时时间，则 await 直到 promise 完成
-            if (timeout == null || timeout <= 0) {
-                promise.await();
-            } else {
-                // 在指定超时时间内等待结果返回
-                boolean success = promise.await(requestMetadata.getTimeout(), TimeUnit.MILLISECONDS);
-                if (!success) {
-                    promise.setFailure(new TimeoutException(String.format("The Remote procedure call exceeded the " +
-                            "specified timeout of %dms.", timeout)));
-                }
-            }
-            if (promise.isSuccess()) {
-                // 返回响应结果
-                return promise.getNow();
-            } else {
-                throw new RpcException(promise.cause());
-            }
+            return promise;
         } else {
-            throw new IllegalStateException("The channel is inactivate.");
+            promise.setFailure(new IllegalStateException("The channel is inactivate."));
+            return promise;
         }
     }
 

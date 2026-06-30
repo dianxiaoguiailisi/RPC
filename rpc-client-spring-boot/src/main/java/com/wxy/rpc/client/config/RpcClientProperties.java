@@ -16,7 +16,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class RpcClientProperties {
 
     /**
-     * Load balancing algorithm, candidate values include: (random, roundRobin, consistentHash), the default is random.
+     * Load balancing algorithm, candidate values include: (random, roundRobin, consistentHash, adaptive),
+     * the default is random.
      */
     private String loadbalance;
 
@@ -45,6 +46,59 @@ public class RpcClientProperties {
      */
     private Integer timeout;
 
+    /**
+     * Failover retry count, default: 0.
+     *
+     * A value of 0 means only one call attempt.
+     * A value of 2 means one first call plus two retry attempts.
+     */
+    private Integer retries;
+
+    /**
+     * Provider isolation threshold, default: 3.
+     *
+     * When a provider fails continuously and reaches this threshold,
+     * it will be temporarily isolated by the client.
+     */
+    private Integer failureThreshold;
+
+    /**
+     * Provider circuit open duration in milliseconds, default: 10000.
+     *
+     * During this period, the client will skip the failed provider.
+     * After the duration expires, one request can be used as a half-open probe.
+     */
+    private Long circuitOpenMillis;
+
+    /**
+     * Whether to retry timeout exceptions, default: true.
+     */
+    private Boolean retryOnTimeout;
+
+    /**
+     * Whether to retry connection exceptions, default: true.
+     */
+    private Boolean retryOnConnectFailure;
+
+    /**
+     * Whether to retry remote business exceptions, default: false.
+     */
+    private Boolean retryOnBusinessException;
+
+    /**
+     * Slow call threshold in milliseconds, default: 1000.
+     *
+     * A call whose elapsed time is greater than this value will be recorded as a slow call.
+     */
+    private Long slowCallThresholdMillis;
+
+    /**
+     * Slow call threshold count, default: 3.
+     *
+     * When a provider reaches this count continuously, it will be temporarily isolated.
+     */
+    private Integer slowCallThresholdCount;
+
     public RpcClientProperties() {
         this.loadbalance = "random";
         this.serialization = "HESSIAN";
@@ -52,5 +106,13 @@ public class RpcClientProperties {
         this.registry = "zookeeper";
         this.registryAddr = "127.0.0.1:2181";
         this.timeout = 5000;
+        this.retries = 0;
+        this.failureThreshold = 3;
+        this.circuitOpenMillis = 10000L;
+        this.retryOnTimeout = true;
+        this.retryOnConnectFailure = true;
+        this.retryOnBusinessException = false;
+        this.slowCallThresholdMillis = 1000L;
+        this.slowCallThresholdCount = 3;
     }
 }

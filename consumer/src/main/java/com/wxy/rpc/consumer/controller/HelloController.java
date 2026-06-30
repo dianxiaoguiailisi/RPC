@@ -19,10 +19,10 @@ import java.util.Map;
 @RestController
 @RequestMapping
 public class HelloController {
-
+    //通过@RpcReference注入远程代理对象
     @RpcReference
     private HelloService helloService;
-
+    //通过@RpcReference注入远程代理对象
     @RpcReference
     private AbstractService abstractService;
 

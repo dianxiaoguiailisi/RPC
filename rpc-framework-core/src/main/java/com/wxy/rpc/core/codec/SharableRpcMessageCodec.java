@@ -2,6 +2,7 @@ package com.wxy.rpc.core.codec;
 
 import com.wxy.rpc.core.common.RpcRequest;
 import com.wxy.rpc.core.common.RpcResponse;
+import com.wxy.rpc.core.common.ServerLoadMetrics;
 import com.wxy.rpc.core.constant.ProtocolConstants;
 import com.wxy.rpc.core.enums.MessageType;
 import com.wxy.rpc.core.enums.SerializationType;
@@ -142,9 +143,17 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
             // 进行反序列化
             RpcResponse response = serialization.deserialize(RpcResponse.class, bytes);
             protocol.setBody(response);
-        } else if (type == MessageType.HEARTBEAT_REQUEST || type == MessageType.HEARTBEAT_RESPONSE) {
+        } else if (type == MessageType.HEARTBEAT_REQUEST) {
             String message = serialization.deserialize(String.class, bytes);
             protocol.setBody(message);
+        } else if (type == MessageType.HEARTBEAT_RESPONSE) {
+            try {
+                ServerLoadMetrics metrics = serialization.deserialize(ServerLoadMetrics.class, bytes);
+                protocol.setBody(metrics);
+            } catch (Exception e) {
+                String message = serialization.deserialize(String.class, bytes);
+                protocol.setBody(message);
+            }
         }
         // 传递到下一个处理器
         out.add(protocol);

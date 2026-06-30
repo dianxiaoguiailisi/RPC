@@ -7,10 +7,7 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
 /**
- * @author Wuxy
- * @version 1.0
- * @ClassName User
- * @Date 2023/1/8 23:41
+ * 用户DTO,实现了Serializable,用于 RPC 方法参数或返回值传输。
  */
 @Data
 @AllArgsConstructor

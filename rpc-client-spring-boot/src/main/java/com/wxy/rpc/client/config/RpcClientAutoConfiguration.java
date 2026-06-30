@@ -1,6 +1,7 @@
 package com.wxy.rpc.client.config;
 
 import com.wxy.rpc.client.spring.RpcClientBeanPostProcessor;
+import com.wxy.rpc.client.proxy.AdaptiveLoadBalance;
 import com.wxy.rpc.client.proxy.ClientStubProxyFactory;
 import com.wxy.rpc.client.spring.RpcClientExitDisposableBean;
 import com.wxy.rpc.client.transport.RpcClient;
@@ -96,6 +97,13 @@ public class RpcClientAutoConfiguration {
     @ConditionalOnProperty(prefix = "rpc.client", name = "loadbalance", havingValue = "consistentHash")
     public LoadBalance consistentHashLoadBalance() {
         return new ConsistentHashLoadBalance();
+    }
+
+    @Bean(name = "loadBalance")
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "rpc.client", name = "loadbalance", havingValue = "adaptive")
+    public LoadBalance adaptiveLoadBalance() {
+        return new AdaptiveLoadBalance();
     }
 
     @Bean(name = "serviceDiscovery")

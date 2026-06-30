@@ -1,6 +1,9 @@
 package com.wxy.rpc.client.handler;
 
+import com.wxy.rpc.client.future.RpcPromise;
+import com.wxy.rpc.client.proxy.ProviderHealthManager;
 import com.wxy.rpc.core.common.RpcResponse;
+import com.wxy.rpc.core.common.ServerLoadMetrics;
 import com.wxy.rpc.core.constant.ProtocolConstants;
 import com.wxy.rpc.core.enums.MessageType;
 import com.wxy.rpc.core.enums.SerializationType;
@@ -12,9 +15,10 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCountUtil;
-import io.netty.util.concurrent.Promise;
 import lombok.extern.slf4j.Slf4j;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,7 +36,7 @@ public class RpcResponseHandler extends SimpleChannelInboundHandler<RpcMessage> 
     /**
      * 存放未处理的响应请求
      */
-    public static final Map<Integer, Promise<RpcMessage>> UNPROCESSED_RPC_RESPONSES = new ConcurrentHashMap<>();
+    public static final Map<Integer, RpcPromise<RpcMessage>> UNPROCESSED_RPC_RESPONSES = new ConcurrentHashMap<>();
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcMessage msg) throws Exception {
@@ -42,7 +46,7 @@ public class RpcResponseHandler extends SimpleChannelInboundHandler<RpcMessage> 
             if (type == MessageType.RESPONSE) {
                 int sequenceId = msg.getHeader().getSequenceId();
                 // 拿到还未执行完成的 promise 对象
-                Promise<RpcMessage> promise = UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
+                RpcPromise<RpcMessage> promise = UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
                 if (promise != null) {
                     Exception exception = ((RpcResponse) msg.getBody()).getExceptionValue();
                     if (exception == null) {
@@ -51,13 +55,37 @@ public class RpcResponseHandler extends SimpleChannelInboundHandler<RpcMessage> 
                         promise.setFailure(exception);
                     }
                 }
-            } else if (type == MessageType.HEARTBEAT_RESPONSE) { // 如果是心跳检查请求
-                log.debug("Heartbeat info {}.", msg.getBody());
+            } else if (type == MessageType.HEARTBEAT_RESPONSE) { // 如果是心跳检查响应
+                handleHeartbeatResponse(ctx, msg.getBody());
             }
         } finally {
             // 释放内存，防止内存泄漏
             ReferenceCountUtil.release(msg);
         }
+    }
+
+    private void handleHeartbeatResponse(ChannelHandlerContext ctx, Object body) {
+        if (body instanceof ServerLoadMetrics) {
+            InetSocketAddress remoteAddress = getRemoteAddress(ctx);
+            if (remoteAddress != null) {
+                ServerLoadMetrics metrics = (ServerLoadMetrics) body;
+                ProviderHealthManager.updateServerLoadMetrics(remoteAddress.getHostString(), remoteAddress.getPort(),
+                        metrics);
+                if (remoteAddress.getAddress() != null) {
+                    ProviderHealthManager.updateServerLoadMetrics(remoteAddress.getAddress().getHostAddress(),
+                            remoteAddress.getPort(), metrics);
+                }
+            }
+        }
+        log.debug("Heartbeat info {}.", body);
+    }
+
+    private InetSocketAddress getRemoteAddress(ChannelHandlerContext ctx) {
+        SocketAddress remoteAddress = ctx.channel().remoteAddress();
+        if (remoteAddress instanceof InetSocketAddress) {
+            return (InetSocketAddress) remoteAddress;
+        }
+        return null;
     }
 
     /**

@@ -5,10 +5,7 @@ import com.wxy.rpc.api.pojo.User;
 import java.util.List;
 
 /**
- * @author Wuxy
- * @version 1.0
- * @ClassName UserService
- * @Date 2023/1/8 23:43
+ * 用户服务接口。
  */
 public interface UserService {
 

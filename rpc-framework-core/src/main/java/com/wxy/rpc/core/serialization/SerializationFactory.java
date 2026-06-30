@@ -17,6 +17,10 @@ import com.wxy.rpc.core.serialization.protostuff.ProtostuffSerialization;
  */
 public class SerializationFactory {
 
+    /** 
+     * @param enumType
+     * @return Serialization
+     */
     public static Serialization getSerialization(SerializationType enumType) {
         switch (enumType) {
             case JDK:

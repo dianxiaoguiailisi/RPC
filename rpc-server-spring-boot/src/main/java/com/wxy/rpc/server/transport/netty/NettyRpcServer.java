@@ -17,8 +17,6 @@ import io.netty.handler.timeout.IdleStateHandler;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,8 +40,6 @@ public class NettyRpcServer implements RpcServer {
 
         try {
 
-            InetAddress inetAddress = InetAddress.getLocalHost();
-
             ServerBootstrap serverBootstrap = new ServerBootstrap();
             serverBootstrap.group(boss, worker)
                     .channel(NioServerSocketChannel.class)
@@ -66,11 +62,11 @@ public class NettyRpcServer implements RpcServer {
                         }
                     });
             // 绑定端口，同步等待绑定成功
-            ChannelFuture channelFuture = serverBootstrap.bind(inetAddress, port).sync();
-            log.debug("Rpc server add {} started on the port {}.", inetAddress, port);
+            ChannelFuture channelFuture = serverBootstrap.bind(port).sync();
+            log.debug("Rpc server started on the port {}.", port);
             // 等待服务端监听端口关闭
             channelFuture.channel().closeFuture().sync();
-        } catch (UnknownHostException | InterruptedException e) {
+        } catch (InterruptedException e) {
             log.error("An error occurred while starting the rpc service.", e);
         } finally {
             boss.shutdownGracefully();

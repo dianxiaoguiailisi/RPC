@@ -15,6 +15,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class SingletonFactory {
     private static final Map<String, Object> OBJECT_MAP = new ConcurrentHashMap<>();
 
+    /** 
+     * @param clazz
+     * @return T
+     */
     public static <T> T getInstance(Class<T> clazz) {
         try {
             String name = clazz.getName();

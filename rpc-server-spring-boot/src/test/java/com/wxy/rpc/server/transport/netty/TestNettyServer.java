@@ -10,6 +10,9 @@ import com.wxy.rpc.server.transport.RpcServer;
  */
 public class TestNettyServer {
 
+    /** 
+     * @param args
+     */
     public static void main(String[] args) {
         RpcServer rpcServer = new NettyRpcServer();
         rpcServer.start(8880);

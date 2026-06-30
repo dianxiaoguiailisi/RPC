@@ -8,15 +8,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/**
- * @author Wuxy
- * @version 1.0
- * @ClassName UserController
- * @Date 2023/1/8 23:47
- */
 @RestController
 public class UserController {
-
+    //通过@RpcReference注入远程代理对象
     @RpcReference
     private UserService userService;
 

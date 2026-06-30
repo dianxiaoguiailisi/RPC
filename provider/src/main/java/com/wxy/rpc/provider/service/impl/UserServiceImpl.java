@@ -9,19 +9,22 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * @author Wuxy
- * @version 1.0
- * @ClassName UserServiceImpl
- * @Date 2023/1/8 23:45
+ * `UserServiceImpl`：`UserService` 的实现类，用 `@RpcService` 暴露成 RPC 服务
  */
 @RpcService(interfaceClass = UserService.class)
 public class UserServiceImpl implements UserService {
 
+    /** 
+     * @return User
+     */
     @Override
     public User queryUser() {
         return new User("hwd", "123456", 25);
     }
 
+    /** 
+     * @return List<User>
+     */
     @Override
     public List<User> getAllUsers() {
         // 注意：直接使用 Arrays.ArrayList 会导致序列化异常

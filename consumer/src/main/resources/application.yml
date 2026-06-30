@@ -6,8 +6,16 @@ rpc:
     serialization: PROTOSTUFF
     transport: netty
     registry: zookeeper
-    registry-addr: 39.108.66.202:2181
+    registry-addr: 119.45.130.240:2181
     timeout: 5000
+    retries: 2
+    failure-threshold: 3
+    circuit-open-millis: 10000
+    retry-on-timeout: true
+    retry-on-connect-failure: true
+    retry-on-business-exception: false
+    slow-call-threshold-millis: 1000
+    slow-call-threshold-count: 3
 
 # 设置控制台日志显示级别
 logging:

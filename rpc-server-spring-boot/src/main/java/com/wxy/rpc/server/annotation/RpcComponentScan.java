@@ -16,17 +16,13 @@ import java.lang.annotation.*;
  * Spring 容器在解析该类型的 Bean 时会调用其 {@link ImportBeanDefinitionRegistrar#registerBeanDefinitions(AnnotationMetadata, BeanDefinitionRegistry)} 方法，
  * 将 @{@link RpcComponentScan} 注解上的信息提取成 {@link AnnotationMetadata} 以及容器注册器对象作为此方法的参数，这个就是自定义注解式组件扫描的关键逻辑。
  * </p>
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName RpcComponentScan
- * @Date 2023/1/9 17:18
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 @Inherited
 @Import(RpcBeanDefinitionRegistrar.class)
+//重点内容：当解析到@RpcComponentScan 时，把 RpcBeanDefinitionRegistrar 这个类也导入进来，并调用它的注册逻辑
 public @interface RpcComponentScan {
 
     /**
