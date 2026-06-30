@@ -155,7 +155,10 @@ public class NettyRpcClient implements RpcClient {
                 log.debug("The client has successfully connected to server [{}]!", inetSocketAddress.toString());
                 completableFuture.complete(future.channel());
             } else {
-                throw new RpcException(String.format("The client failed to connect to [%s].", inetSocketAddress.toString()));
+                RpcException exception = new RpcException(String.format("The client failed to connect to [%s].",
+                        inetSocketAddress.toString()), future.cause());
+                completableFuture.completeExceptionally(exception);
+                log.warn("The client failed to connect to server [{}].", inetSocketAddress, future.cause());
             }
         });
         // 等待 future 完成返回结果
