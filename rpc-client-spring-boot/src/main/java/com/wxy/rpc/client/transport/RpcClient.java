@@ -44,4 +44,12 @@ public interface RpcClient {
         return promise;
     }
 
+    /**
+     * 关闭客户端占用的网络线程、连接等资源。
+     *
+     * 默认实现为空，只有 Netty 这类需要维护 EventLoopGroup 的客户端需要覆盖。
+     */
+    default void close() {
+    }
+
 }

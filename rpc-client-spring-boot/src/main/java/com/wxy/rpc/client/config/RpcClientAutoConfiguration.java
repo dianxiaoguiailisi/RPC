@@ -162,8 +162,9 @@ public class RpcClientAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public RpcClientExitDisposableBean rpcClientExitDisposableBean(@Autowired ServiceDiscovery serviceDiscovery) {
-        return new RpcClientExitDisposableBean(serviceDiscovery);
+    public RpcClientExitDisposableBean rpcClientExitDisposableBean(@Autowired ServiceDiscovery serviceDiscovery,
+                                                                   @Autowired RpcClient rpcClient) {
+        return new RpcClientExitDisposableBean(serviceDiscovery, rpcClient);
     }
 
 }

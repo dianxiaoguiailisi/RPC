@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class BenchmarkTest {
     private final HelloController helloController;
+    private final AnnotationConfigApplicationContext context;
 
     static {
         // 初始化时设置 NettyRpcClient 和 RpcResponseHandler 的日志类级别为 OFF，及关闭日志打印
@@ -49,13 +50,18 @@ public class BenchmarkTest {
     }
 
     public BenchmarkTest() {
-        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
+        context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
         helloController = context.getBean("helloController", HelloController.class);
     }
 
     @Benchmark
     public void testSayHello() {
         helloController.hello("zhangsan");
+    }
+
+    @TearDown(org.openjdk.jmh.annotations.Level.Trial)
+    public void tearDown() {
+        context.close();
     }
 
     public static void main(String[] args) throws RunnerException {

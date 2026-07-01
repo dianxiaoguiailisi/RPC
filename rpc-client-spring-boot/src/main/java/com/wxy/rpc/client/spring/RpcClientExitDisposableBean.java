@@ -1,6 +1,7 @@
 package com.wxy.rpc.client.spring;
 
 import com.wxy.rpc.core.discovery.ServiceDiscovery;
+import com.wxy.rpc.client.transport.RpcClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 
@@ -20,8 +21,14 @@ public class RpcClientExitDisposableBean implements DisposableBean {
      */
     private final ServiceDiscovery serviceDiscovery;
 
-    public RpcClientExitDisposableBean(ServiceDiscovery serviceDiscovery) {
+    /**
+     * RPC 客户端，可能持有 Netty EventLoopGroup、连接缓存等资源。
+     */
+    private final RpcClient rpcClient;
+
+    public RpcClientExitDisposableBean(ServiceDiscovery serviceDiscovery, RpcClient rpcClient) {
         this.serviceDiscovery = serviceDiscovery;
+        this.rpcClient = rpcClient;
     }
 
     /**
@@ -34,6 +41,9 @@ public class RpcClientExitDisposableBean implements DisposableBean {
         try {
             if (serviceDiscovery != null) {
                 serviceDiscovery.destroy();
+            }
+            if (rpcClient != null) {
+                rpcClient.close();
             }
             log.info("Rpc client resource release completed and exited successfully.");
         } catch (Exception e) {
