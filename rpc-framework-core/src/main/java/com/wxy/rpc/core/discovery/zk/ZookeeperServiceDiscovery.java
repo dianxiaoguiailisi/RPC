@@ -58,6 +58,17 @@ public class ZookeeperServiceDiscovery implements ServiceDiscovery {
     private static final int MAX_RETRY = 10;
 
     /**
+     * ServiceCache 启动后，首次拉取服务列表可能需要很短的同步时间。
+     * 这里做短暂等待，避免高并发压测刚启动时把空列表缓存下来，导致第一批请求全部发现失败。
+     */
+    private static final int SERVICE_CACHE_WARMUP_RETRY_TIMES = 20;
+
+    /**
+     * ServiceCache 首次等待间隔，单位毫秒。
+     */
+    private static final long SERVICE_CACHE_WARMUP_INTERVAL_MILLIS = 50L;
+
+    /**
      * RPC 服务在 Zookeeper 中的根路径。服务注册和服务发现需要使用同一个根路径，否则客户端发现不到服务端注册的节点。
      */
     private static final String BASE_PATH = "/wxy_rpc";
@@ -168,21 +179,38 @@ public class ZookeeperServiceDiscovery implements ServiceDiscovery {
      */
     @Override
     public List<ServiceInfo> getServices(String serviceName) throws Exception {
-        if (!serviceMap.containsKey(serviceName)) {
-            // 构建本地服务缓存
-            ServiceCache<ServiceInfo> serviceCache = serviceDiscovery.serviceCacheBuilder()
+        ServiceCache<ServiceInfo> serviceCache = serviceCacheMap.get(serviceName);
+        if (serviceCache == null) {
+            serviceCache = createAndStartServiceCache(serviceName);
+        }
+
+        List<ServiceInfo> services = refreshServiceMap(serviceName, serviceCache);
+        if (services.isEmpty()) {
+            services = waitForServiceInstances(serviceName, serviceCache);
+        }
+        return services;
+    }
+
+    /**
+     * 创建并启动指定服务的 ServiceCache。
+     * 这里使用同步块保证同一个 serviceName 只创建一个 ServiceCache，避免高并发首次调用时重复创建监听器。
+     */
+    private ServiceCache<ServiceInfo> createAndStartServiceCache(String serviceName) throws Exception {
+        synchronized (serviceCacheMap) {
+            ServiceCache<ServiceInfo> serviceCache = serviceCacheMap.get(serviceName);
+            if (serviceCache != null) {
+                return serviceCache;
+            }
+
+            ServiceCache<ServiceInfo> newServiceCache = serviceDiscovery.serviceCacheBuilder()
                     .name(serviceName)
                     .build();
-            // 添加服务监听，当服务发生变化时主动更新本地缓存并通知
-            serviceCache.addListener(new ServiceCacheListener() {
+            newServiceCache.addListener(new ServiceCacheListener() {
                 @Override
                 public void cacheChanged() {
                     log.info("The service [{}] cache has changed. The current number of service samples is {}."
-                            , serviceName, serviceCache.getInstances().size());
-                    // provider 节点发生变化时，重新读取 ServiceCache 中的实例，并刷新本地 serviceMap。
-                    serviceMap.put(serviceName, serviceCache.getInstances().stream()
-                            .map(ServiceInstance::getPayload)
-                            .collect(Collectors.toList()));
+                            , serviceName, newServiceCache.getInstances().size());
+                    refreshServiceMap(serviceName, newServiceCache);
                 }
 
                 @Override
@@ -193,17 +221,37 @@ public class ZookeeperServiceDiscovery implements ServiceDiscovery {
                             , client, newState);
                 }
             });
-            // 开启服务缓存监听
-            serviceCache.start();
-            // 将服务缓存对象存入本地
-            serviceCacheMap.put(serviceName, serviceCache);
-            // 第一次查询时，将当前从 Zookeeper 获取到的服务实例列表缓存到本地 serviceMap。
-            serviceMap.put(serviceName, serviceCacheMap.get(serviceName).getInstances()
-                    .stream()
-                    .map(ServiceInstance::getPayload)
-                    .collect(Collectors.toList()));
+
+            newServiceCache.start();
+            serviceCacheMap.put(serviceName, newServiceCache);
+            return newServiceCache;
         }
-        return serviceMap.get(serviceName);
+    }
+
+    /**
+     * 从 Curator ServiceCache 刷新本地服务列表缓存。
+     */
+    private List<ServiceInfo> refreshServiceMap(String serviceName, ServiceCache<ServiceInfo> serviceCache) {
+        List<ServiceInfo> services = serviceCache.getInstances()
+                .stream()
+                .map(ServiceInstance::getPayload)
+                .collect(Collectors.toList());
+        serviceMap.put(serviceName, services);
+        return services;
+    }
+
+    /**
+     * ServiceCache 刚启动时，Curator 可能还没来得及把 Zookeeper 中的节点同步到本地。
+     * 如果第一次拿到空列表，就短暂重试几次；这能避免压测刚开始时大量请求因为服务列表为空而失败。
+     */
+    private List<ServiceInfo> waitForServiceInstances(String serviceName, ServiceCache<ServiceInfo> serviceCache)
+            throws InterruptedException {
+        List<ServiceInfo> services = serviceMap.get(serviceName);
+        for (int i = 0; (services == null || services.isEmpty()) && i < SERVICE_CACHE_WARMUP_RETRY_TIMES; i++) {
+            Thread.sleep(SERVICE_CACHE_WARMUP_INTERVAL_MILLIS);
+            services = refreshServiceMap(serviceName, serviceCache);
+        }
+        return services;
     }
 
     /**

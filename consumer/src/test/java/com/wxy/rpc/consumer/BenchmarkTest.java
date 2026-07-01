@@ -37,21 +37,35 @@ import java.util.concurrent.TimeUnit;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Slf4j
 public class BenchmarkTest {
-    private final HelloController helloController;
-    private final AnnotationConfigApplicationContext context;
+    private HelloController helloController;
+    private AnnotationConfigApplicationContext context;
 
     static {
         // 初始化时设置 NettyRpcClient 和 RpcResponseHandler 的日志类级别为 OFF，及关闭日志打印
         LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Logger rootLogger = loggerContext.getLogger(Logger.ROOT_LOGGER_NAME);
+        rootLogger.setLevel(Level.WARN);
         Logger clientLogger = loggerContext.getLogger(NettyRpcClient.class);
         clientLogger.setLevel(Level.OFF);
         Logger handlerLogger = loggerContext.getLogger(RpcResponseHandler.class);
         handlerLogger.setLevel(Level.OFF);
     }
 
-    public BenchmarkTest() {
+    @Setup(org.openjdk.jmh.annotations.Level.Trial)
+    public void setup() throws InterruptedException {
         context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
         helloController = context.getBean("helloController", HelloController.class);
+        RuntimeException lastException = null;
+        for (int i = 0; i < 10; i++) {
+            try {
+                helloController.hello("warmup");
+                return;
+            } catch (RuntimeException e) {
+                lastException = e;
+                Thread.sleep(200L);
+            }
+        }
+        throw lastException;
     }
 
     @Benchmark
