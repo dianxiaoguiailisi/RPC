@@ -50,4 +50,13 @@ public class ChannelProvider {
     public void set(InetSocketAddress inetSocketAddress, Channel channel) {
         this.set(inetSocketAddress.getHostName(), inetSocketAddress.getPort(), channel);
     }
+
+    public void closeAll() {
+        channels.values().forEach(channel -> {
+            if (channel != null) {
+                channel.close().syncUninterruptibly();
+            }
+        });
+        channels.clear();
+    }
 }

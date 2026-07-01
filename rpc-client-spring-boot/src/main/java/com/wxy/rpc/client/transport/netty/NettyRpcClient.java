@@ -187,6 +187,7 @@ public class NettyRpcClient implements RpcClient {
 
     @Override
     public void close() {
+        channelProvider.closeAll();
         eventLoopGroup.shutdownGracefully(0, 5, TimeUnit.SECONDS).syncUninterruptibly();
     }
 }
