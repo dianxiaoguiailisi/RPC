@@ -19,6 +19,9 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -58,43 +61,86 @@ public class NettyRpcRequestHandler extends SimpleChannelInboundHandler<RpcMessa
 
     private void handleMessage(ChannelHandlerContext ctx, RpcMessage msg, MessageType type, RpcRequest request) {
         try {
-            RpcMessage responseRpcMessage = new RpcMessage();
             MessageHeader header = msg.getHeader();
             log.debug("The message received by the server is: {}", msg.getBody());
             // 如果是心跳检测请求信息
             if (type == MessageType.HEARTBEAT_REQUEST) {
                 header.setMessageType(MessageType.HEARTBEAT_RESPONSE.getType());
                 header.setMessageStatus(MessageStatus.SUCCESS.getCode());
-                // 设置响应头部信息
-                responseRpcMessage.setHeader(header);
-                responseRpcMessage.setBody(ServerLoadMetricsCollector.collect(BusinessThreadPoolManager.getExecutors()));
+                RpcMessage responseRpcMessage = buildResponseMessage(header,
+                        ServerLoadMetricsCollector.collect(BusinessThreadPoolManager.getExecutors()));
+                writeResponse(ctx, responseRpcMessage);
             } else { // 处理 Rpc 请求信息
-                RpcResponse response = new RpcResponse();
                 // 设置头部消息类型
                 header.setMessageType(MessageType.RESPONSE.getType());
                 // 反射调用
                 try {
                     // 获取本地反射调用结果
                     Object result = rpcRequestHandler.handleRpcRequest(request);
-                    response.setReturnValue(result);
-                    header.setMessageStatus(MessageStatus.SUCCESS.getCode());
+                    if (result instanceof CompletionStage) {
+                        writeAsyncRpcResponse(ctx, header, request, (CompletionStage<?>) result);
+                        return;
+                    }
+                    writeRpcResponse(ctx, header, result, null);
                 } catch (Exception e) {
                     log.error("The service [{}], the method [{}] invoke failed!", request.getServiceName(), request.getMethod());
-                    // 若不设置，堆栈信息过多，导致报错
-                    response.setExceptionValue(new RpcException("Error in remote procedure call, " + e.getMessage()));
-                    header.setMessageStatus(MessageStatus.FAIL.getCode());
+                    writeRpcResponse(ctx, header, null, new RpcException("Error in remote procedure call, " + e.getMessage()));
                 }
-                // 设置响应头部信息
-                responseRpcMessage.setHeader(header);
-                responseRpcMessage.setBody(response);
             }
-            log.debug("responseRpcMessage: {}.", responseRpcMessage);
-            // 将结果写入，传递到下一个处理器
-            ctx.writeAndFlush(responseRpcMessage).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
         } finally {
             // 确保 ByteBuf 被释放，防止发生内存泄露
             ReferenceCountUtil.release(msg);
         }
+    }
+
+    private void writeAsyncRpcResponse(ChannelHandlerContext ctx, MessageHeader header, RpcRequest request,
+                                       CompletionStage<?> completionStage) {
+        completionStage.whenComplete((result, throwable) -> ctx.executor().execute(() -> {
+            if (throwable == null) {
+                writeRpcResponse(ctx, header, result, null);
+                return;
+            }
+            Throwable cause = unwrap(throwable);
+            log.error("The async service [{}], the method [{}] invoke failed!",
+                    request.getServiceName(), request.getMethod(), cause);
+            writeRpcResponse(ctx, header, null,
+                    new RpcException("Error in async remote procedure call, " + cause.getMessage()));
+        }));
+    }
+
+    private void writeRpcResponse(ChannelHandlerContext ctx, MessageHeader header, Object result, Exception exception) {
+        RpcResponse response = new RpcResponse();
+        if (exception == null) {
+            response.setReturnValue(result);
+            header.setMessageStatus(MessageStatus.SUCCESS.getCode());
+        } else {
+            // 若不设置，堆栈信息过多，导致报错
+            response.setExceptionValue(exception);
+            header.setMessageStatus(MessageStatus.FAIL.getCode());
+        }
+        writeResponse(ctx, buildResponseMessage(header, response));
+    }
+
+    private RpcMessage buildResponseMessage(MessageHeader header, Object body) {
+        RpcMessage responseRpcMessage = new RpcMessage();
+        responseRpcMessage.setHeader(header);
+        responseRpcMessage.setBody(body);
+        return responseRpcMessage;
+    }
+
+    private void writeResponse(ChannelHandlerContext ctx, RpcMessage responseRpcMessage) {
+        log.debug("responseRpcMessage: {}.", responseRpcMessage);
+        // 将结果写入，传递到下一个处理器
+        ctx.writeAndFlush(responseRpcMessage).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
+    }
+
+    private Throwable unwrap(Throwable throwable) {
+        Throwable current = throwable;
+        if ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private void writeRejectedResponse(ChannelHandlerContext ctx, RpcMessage msg, MessageType type, RpcRequest request) {

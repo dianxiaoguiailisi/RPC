@@ -73,6 +73,20 @@ public class BenchmarkTest {
         helloController.hello("zhangsan");
     }
 
+    @Benchmark
+    public void testSayHelloAsyncWait() {
+        helloController.helloAsync("zhangsan").join();
+    }
+
+    @Benchmark
+    public void testSayHelloAsyncSubmit() {
+        helloController.helloAsync("zhangsan").whenComplete((result, throwable) -> {
+            if (throwable != null) {
+                log.debug("Async rpc call failed.", throwable);
+            }
+        });
+    }
+
     @TearDown(org.openjdk.jmh.annotations.Level.Trial)
     public void tearDown() {
         context.close();

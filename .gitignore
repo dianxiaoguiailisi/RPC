@@ -4,6 +4,7 @@
 
 # Log file
 *.log
+jmh-local-rpc-*.json
 
 # BlueJ files
 *.ctxt

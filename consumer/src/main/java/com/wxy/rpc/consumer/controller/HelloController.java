@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * @author Wuxy
@@ -31,6 +32,11 @@ public class HelloController {
     public String hello(@PathVariable("name") String name) {
 
         return helloService.sayHello(name);
+    }
+
+    @RequestMapping("/hello/async/{name}")
+    public CompletableFuture<String> helloAsync(@PathVariable("name") String name) {
+        return helloService.sayHelloAsync(name);
     }
 
     @RequestMapping("/hello/test/{count}")
