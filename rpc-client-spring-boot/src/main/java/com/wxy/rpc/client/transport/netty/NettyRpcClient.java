@@ -15,10 +15,12 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
+import io.netty.util.concurrent.ScheduledFuture;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -28,6 +30,18 @@ import java.util.concurrent.TimeoutException;
  */
 @Slf4j
 public class NettyRpcClient implements RpcClient {
+
+    /**
+     * 请求超时扫描初始延迟，单位毫秒。
+     */
+    private static final long TIMEOUT_SCAN_INITIAL_DELAY_MILLIS = 100L;
+
+    /**
+     * 请求超时扫描间隔，单位毫秒。
+     *
+     * 这里用一个周期任务统一扫描未完成请求，避免每个 RPC 请求都向 EventLoop 注册一个一次性超时任务。
+     */
+    private static final long TIMEOUT_SCAN_INTERVAL_MILLIS = 100L;
 
     /**
      * Netty 通信启动类
@@ -43,6 +57,11 @@ public class NettyRpcClient implements RpcClient {
      * Channel 对象缓存工具类
      */
     private final ChannelProvider channelProvider;
+
+    /**
+     * 统一请求超时扫描任务。
+     */
+    private final ScheduledFuture<?> timeoutScannerFuture;
 
     public NettyRpcClient() {
         bootstrap = new Bootstrap();
@@ -64,6 +83,8 @@ public class NettyRpcClient implements RpcClient {
                     }
                 });
         this.channelProvider = SingletonFactory.getInstance(ChannelProvider.class);
+        this.timeoutScannerFuture = eventLoopGroup.next().scheduleAtFixedRate(this::scanTimeoutRequests,
+                TIMEOUT_SCAN_INITIAL_DELAY_MILLIS, TIMEOUT_SCAN_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
     }
 
     @SneakyThrows
@@ -108,13 +129,7 @@ public class NettyRpcClient implements RpcClient {
             RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.put(sequenceId, promise);
             Integer timeout = requestMetadata.getTimeout();
             if (timeout != null && timeout > 0) {
-                channel.eventLoop().schedule(() -> {
-                    TimeoutException timeoutException = new TimeoutException(String.format("The Remote procedure call exceeded the " +
-                            "specified timeout of %dms.", timeout));
-                    if (promise.setFailure(timeoutException)) {
-                        RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
-                    }
-                }, timeout, TimeUnit.MILLISECONDS);
+                promise.setTimeoutDeadlineMillis(System.currentTimeMillis() + timeout);
             }
             // 发送数据并监听发送状态
             channel.writeAndFlush(requestMetadata.getRpcMessage()).addListener((ChannelFutureListener) future -> {
@@ -131,6 +146,31 @@ public class NettyRpcClient implements RpcClient {
         } else {
             promise.setFailure(new IllegalStateException("The channel is inactivate."));
             return promise;
+        }
+    }
+
+    /**
+     * 扫描并处理已经超时的 RPC 请求。
+     *
+     * 早期做法是在每个请求发送时调用 EventLoop#schedule 注册一个一次性超时任务。
+     * 高并发场景下，请求越多，定时任务对象和调度队列压力越大。这里改成一个固定周期任务扫描未完成请求表：
+     * 1. 每个请求只记录自己的超时截止时间。
+     * 2. 扫描器发现请求过期后，将 Promise 标记为失败。
+     * 3. 再从 UNPROCESSED_RPC_RESPONSES 中移除，避免后续响应误唤醒和内存泄漏。
+     */
+    private void scanTimeoutRequests() {
+        long nowMillis = System.currentTimeMillis();
+        for (Map.Entry<Integer, RpcPromise<RpcMessage>> entry :
+                RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.entrySet()) {
+            Integer sequenceId = entry.getKey();
+            RpcPromise<RpcMessage> promise = entry.getValue();
+            if (promise.isTimeout(nowMillis)) {
+                TimeoutException timeoutException = new TimeoutException(
+                        "The Remote procedure call exceeded the specified timeout.");
+                if (promise.setFailure(timeoutException)) {
+                    RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId, promise);
+                }
+            }
         }
     }
 
@@ -187,6 +227,7 @@ public class NettyRpcClient implements RpcClient {
 
     @Override
     public void close() {
+        timeoutScannerFuture.cancel(false);
         channelProvider.closeAll();
         eventLoopGroup.shutdownGracefully(0, 5, TimeUnit.SECONDS).syncUninterruptibly();
     }

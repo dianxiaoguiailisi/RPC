@@ -168,7 +168,11 @@ public class ZookeeperServiceDiscovery implements ServiceDiscovery {
 
     /**
      * 获取指定服务的 provider 列表。
-     * 如果本地已经缓存过该 serviceName，直接返回 serviceMap 中的列表。如果是第一次查询该 serviceName，则创建 ServiceCache：
+     *
+     * 正常调用链路只读取 serviceMap 中的本地快照，避免每次 RPC 调用都遍历 Curator ServiceCache 并重新构造服务列表。
+     * 只有第一次查询某个 serviceName，或者 ServiceCacheListener 监听到 provider 上下线时，才刷新本地缓存。
+     *
+     * 第一次查询时会创建 ServiceCache：
      * 1. 从 Zookeeper 拉取当前服务实例列表。
      * 2. 将服务实例列表缓存到 serviceMap。
      * 3. 注册 ServiceCacheListener，后续 provider 上线或下线时自动更新 serviceMap。
@@ -179,9 +183,19 @@ public class ZookeeperServiceDiscovery implements ServiceDiscovery {
      */
     @Override
     public List<ServiceInfo> getServices(String serviceName) throws Exception {
+        List<ServiceInfo> cachedServices = serviceMap.get(serviceName);
+        if (cachedServices != null && !cachedServices.isEmpty()) {
+            return cachedServices;
+        }
+
         ServiceCache<ServiceInfo> serviceCache = serviceCacheMap.get(serviceName);
         if (serviceCache == null) {
             serviceCache = createAndStartServiceCache(serviceName);
+        }
+
+        cachedServices = serviceMap.get(serviceName);
+        if (cachedServices != null && !cachedServices.isEmpty()) {
+            return cachedServices;
         }
 
         List<ServiceInfo> services = refreshServiceMap(serviceName, serviceCache);

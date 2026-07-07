@@ -22,9 +22,19 @@ public class JdkSerialization implements Serialization {
     public <T> byte[] serialize(T object) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(baos);
-            oos.writeObject(object);
+            serialize(object, baos);
             return baos.toByteArray();
+        } catch (Exception e) {
+            throw new SerializeException("Jdk serialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> void serialize(T object, OutputStream outputStream) {
+        try {
+            ObjectOutputStream oos = new ObjectOutputStream(outputStream);
+            oos.writeObject(object);
+            oos.flush();
         } catch (IOException e) {
             throw new SerializeException("Jdk serialize failed.", e);
         }
@@ -39,7 +49,16 @@ public class JdkSerialization implements Serialization {
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {
             ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-            ObjectInputStream ois = new ObjectInputStream(bais);
+            return deserialize(clazz, bais);
+        } catch (Exception e) {
+            throw new SerializeException("Jdk deserialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> T deserialize(Class<T> clazz, InputStream inputStream) {
+        try {
+            ObjectInputStream ois = new ObjectInputStream(inputStream);
             return (T) ois.readObject();
         } catch (IOException | ClassNotFoundException e) {
             throw new SerializeException("Jdk deserialize failed.", e);

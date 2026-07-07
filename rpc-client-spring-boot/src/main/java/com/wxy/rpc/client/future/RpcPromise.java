@@ -33,6 +33,32 @@ public class RpcPromise<T> extends CompletableFuture<T> {
     private volatile Throwable cause;
 
     /**
+     * 请求超时截止时间，单位毫秒。
+     *
+     * 小于等于 0 表示当前 Promise 不启用客户端请求超时扫描。
+     */
+    private volatile long timeoutDeadlineMillis = -1L;
+
+    /**
+     * 设置请求超时截止时间。
+     *
+     * @param timeoutDeadlineMillis 截止时间戳，单位毫秒
+     */
+    public void setTimeoutDeadlineMillis(long timeoutDeadlineMillis) {
+        this.timeoutDeadlineMillis = timeoutDeadlineMillis;
+    }
+
+    /**
+     * 判断当前 Promise 是否已经超时。
+     *
+     * @param nowMillis 当前时间戳，单位毫秒
+     * @return true 表示已超时
+     */
+    public boolean isTimeout(long nowMillis) {
+        return timeoutDeadlineMillis > 0 && nowMillis >= timeoutDeadlineMillis && !isDone();
+    }
+
+    /**
      * 添加完成监听器。
      *
      * 如果 Promise 已经完成，立即触发该监听器。

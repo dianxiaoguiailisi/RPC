@@ -7,6 +7,13 @@ import io.protostuff.ProtostuffIOUtil;
 import io.protostuff.Schema;
 import io.protostuff.runtime.RuntimeSchema;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Protostuff 序列化算法实现类
  *
@@ -18,25 +25,40 @@ import io.protostuff.runtime.RuntimeSchema;
 public class ProtostuffSerialization implements Serialization {
 
     /**
-     * 提前分配好 Buffer，避免每次进行序列化都需要重新分配 buffer 内存空间
+     * Protostuff 的 LinkedBuffer 不是线程安全的。
+     * 序列化器被缓存复用后，需要为每个线程单独保存 Buffer。
      */
-    private final LinkedBuffer BUFFER = LinkedBuffer.allocate(LinkedBuffer.DEFAULT_BUFFER_SIZE);
+    private static final ThreadLocal<LinkedBuffer> BUFFER_THREAD_LOCAL =
+            ThreadLocal.withInitial(() -> LinkedBuffer.allocate(LinkedBuffer.DEFAULT_BUFFER_SIZE));
+
+    private static final Map<Class<?>, Schema<?>> SCHEMA_CACHE = new ConcurrentHashMap<>();
 
     /** 
      * @param object
      * @return byte[]
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public <T> byte[] serialize(T object) {
         try {
-            Schema schema = RuntimeSchema.getSchema(object.getClass());
-            return ProtostuffIOUtil.toByteArray(object, schema, BUFFER);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            serialize(object, outputStream);
+            return outputStream.toByteArray();
+        } catch (Exception e) {
+            throw new SerializeException("Protostuff serialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> void serialize(T object, OutputStream outputStream) {
+        LinkedBuffer buffer = BUFFER_THREAD_LOCAL.get();
+        try {
+            Schema<T> schema = getSchema((Class<T>) object.getClass());
+            ProtostuffIOUtil.writeTo(outputStream, object, schema, buffer);
         } catch (Exception e) {
             throw new SerializeException("Protostuff serialize failed.", e);
         } finally {
             // 重置 buffer
-            BUFFER.clear();
+            buffer.clear();
         }
     }
 
@@ -48,12 +70,27 @@ public class ProtostuffSerialization implements Serialization {
     @Override
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {
-            Schema<T> schema = RuntimeSchema.getSchema(clazz);
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes);
+            return deserialize(clazz, inputStream);
+        } catch (Exception e) {
+            throw new SerializeException("Protostuff deserialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> T deserialize(Class<T> clazz, InputStream inputStream) {
+        try {
+            Schema<T> schema = getSchema(clazz);
             T object = schema.newMessage();
-            ProtostuffIOUtil.mergeFrom(bytes, object, schema);
+            ProtostuffIOUtil.mergeFrom(inputStream, object, schema);
             return object;
         } catch (Exception e) {
             throw new SerializeException("Protostuff deserialize failed.", e);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> Schema<T> getSchema(Class<T> clazz) {
+        return (Schema<T>) SCHEMA_CACHE.computeIfAbsent(clazz, RuntimeSchema::getSchema);
     }
 }

@@ -7,6 +7,9 @@ import com.wxy.rpc.core.serialization.json.JsonSerialization;
 import com.wxy.rpc.core.serialization.kryo.KryoSerialization;
 import com.wxy.rpc.core.serialization.protostuff.ProtostuffSerialization;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 序列化算法工厂，通过序列化枚举类型获取相应的序列化算法实例
  *
@@ -17,11 +20,20 @@ import com.wxy.rpc.core.serialization.protostuff.ProtostuffSerialization;
  */
 public class SerializationFactory {
 
+    private static final Map<SerializationType, Serialization> SERIALIZATION_CACHE = new ConcurrentHashMap<>();
+
     /** 
      * @param enumType
      * @return Serialization
      */
     public static Serialization getSerialization(SerializationType enumType) {
+        if (enumType == null) {
+            throw new IllegalArgumentException("The serialization type cannot be null.");
+        }
+        return SERIALIZATION_CACHE.computeIfAbsent(enumType, SerializationFactory::createSerialization);
+    }
+
+    private static Serialization createSerialization(SerializationType enumType) {
         switch (enumType) {
             case JDK:
                 return new JdkSerialization();
@@ -38,5 +50,4 @@ public class SerializationFactory {
                         enumType.name()));
         }
     }
-
 }

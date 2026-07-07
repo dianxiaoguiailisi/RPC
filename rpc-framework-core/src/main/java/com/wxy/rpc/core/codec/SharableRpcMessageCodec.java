@@ -11,6 +11,8 @@ import com.wxy.rpc.core.protocol.RpcMessage;
 import com.wxy.rpc.core.serialization.Serialization;
 import com.wxy.rpc.core.serialization.SerializationFactory;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
+import io.netty.buffer.ByteBufOutputStream;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageCodec;
@@ -68,16 +70,15 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
         // 获取序列化算法
         Serialization serialization = SerializationFactory
                 .getSerialization(SerializationType.parseByType(header.getSerializerType()));
-        // 进行序列化
-        byte[] bytes = serialization.serialize(body);
-        // 设置消息体长度
-        header.setLength(bytes.length);
-
-        // 4字节 消息内容长度
-        buf.writeInt(header.getLength());
-
-        // 不固定字节 消息内容字节数组
-        buf.writeBytes(bytes);
+        // 4字节 消息内容长度，先写占位，等消息体写完后再回填
+        int lengthIndex = buf.writerIndex();
+        buf.writeInt(0);
+        int bodyStartIndex = buf.writerIndex();
+        // 直接把消息体序列化到 ByteBuf，避免 body -> byte[] -> ByteBuf 的额外拷贝
+        serialization.serialize(body, new ByteBufOutputStream(buf));
+        int bodyLength = buf.writerIndex() - bodyStartIndex;
+        header.setLength(bodyLength);
+        buf.setInt(lengthIndex, bodyLength);
 
         // 传递到下一个出站处理器
         out.add(buf);
@@ -115,9 +116,6 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
         // 4字节 长度
         int length = msg.readInt();
 
-        byte[] bytes = new byte[length];
-        msg.readBytes(bytes, 0, length);
-
         // 构建协议头部信息
         MessageHeader header = MessageHeader.builder()
                 .magicNum(magicNum)
@@ -135,27 +133,34 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
         MessageType type = MessageType.parseByType(messageType);
         RpcMessage protocol = new RpcMessage();
         protocol.setHeader(header);
+        ByteBuf bodyBuf = msg.readSlice(length);
         if (type == MessageType.REQUEST) {
             // 进行反序列化
-            RpcRequest request = serialization.deserialize(RpcRequest.class, bytes);
+            RpcRequest request = deserializeBody(serialization, RpcRequest.class, bodyBuf);
             protocol.setBody(request);
         } else if (type == MessageType.RESPONSE) {
             // 进行反序列化
-            RpcResponse response = serialization.deserialize(RpcResponse.class, bytes);
+            RpcResponse response = deserializeBody(serialization, RpcResponse.class, bodyBuf);
             protocol.setBody(response);
         } else if (type == MessageType.HEARTBEAT_REQUEST) {
-            String message = serialization.deserialize(String.class, bytes);
+            String message = deserializeBody(serialization, String.class, bodyBuf);
             protocol.setBody(message);
         } else if (type == MessageType.HEARTBEAT_RESPONSE) {
+            bodyBuf.markReaderIndex();
             try {
-                ServerLoadMetrics metrics = serialization.deserialize(ServerLoadMetrics.class, bytes);
+                ServerLoadMetrics metrics = deserializeBody(serialization, ServerLoadMetrics.class, bodyBuf);
                 protocol.setBody(metrics);
             } catch (Exception e) {
-                String message = serialization.deserialize(String.class, bytes);
+                bodyBuf.resetReaderIndex();
+                String message = deserializeBody(serialization, String.class, bodyBuf);
                 protocol.setBody(message);
             }
         }
         // 传递到下一个处理器
         out.add(protocol);
+    }
+
+    private <T> T deserializeBody(Serialization serialization, Class<T> clazz, ByteBuf bodyBuf) {
+        return serialization.deserialize(clazz, new ByteBufInputStream(bodyBuf));
     }
 }

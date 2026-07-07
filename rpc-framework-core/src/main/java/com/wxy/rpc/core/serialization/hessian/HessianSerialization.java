@@ -8,6 +8,8 @@ import com.wxy.rpc.core.serialization.Serialization;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * Hessian 序列化算法
@@ -26,10 +28,19 @@ public class HessianSerialization implements Serialization {
     public <T> byte[] serialize(T object) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            HessianSerializerOutput hso = new HessianSerializerOutput(baos);
+            serialize(object, baos);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new SerializeException("Hessian serialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> void serialize(T object, OutputStream outputStream) {
+        try {
+            HessianSerializerOutput hso = new HessianSerializerOutput(outputStream);
             hso.writeObject(object);
             hso.flush();
-            return baos.toByteArray();
         } catch (IOException e) {
             throw new SerializeException("Hessian serialize failed.", e);
         }
@@ -44,7 +55,16 @@ public class HessianSerialization implements Serialization {
     public <T> T deserialize(Class<T> clazz, byte[] bytes) {
         try {
             ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
-            HessianSerializerInput hsi = new HessianSerializerInput(bis);
+            return deserialize(clazz, bis);
+        } catch (Exception e) {
+            throw new SerializeException("Hessian deserialize failed.", e);
+        }
+    }
+
+    @Override
+    public <T> T deserialize(Class<T> clazz, InputStream inputStream) {
+        try {
+            HessianSerializerInput hsi = new HessianSerializerInput(inputStream);
             return (T) hsi.readObject();
         } catch (IOException e) {
             throw new SerializeException("Hessian deserialize failed.", e);
