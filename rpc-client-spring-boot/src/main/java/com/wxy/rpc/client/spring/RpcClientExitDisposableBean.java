@@ -38,17 +38,29 @@ public class RpcClientExitDisposableBean implements DisposableBean {
      */
     @Override
     public void destroy() throws Exception {
+        Exception discoveryException = null;
         try {
             if (serviceDiscovery != null) {
                 serviceDiscovery.destroy();
             }
+        } catch (Exception e) {
+            discoveryException = e;
+            log.warn("An exception occurred while closing service discovery, {}.", e.getMessage());
+        }
+
+        try {
             if (rpcClient != null) {
                 rpcClient.close();
             }
-            log.info("Rpc client resource release completed and exited successfully.");
         } catch (Exception e) {
-            log.warn("An exception occurred while executing the destroy operation when the rpc client exited, {}.",
-                    e.getMessage());
+            log.warn("An exception occurred while closing the rpc client, {}.", e.getMessage());
+            if (discoveryException == null) {
+                discoveryException = e;
+            }
+        }
+
+        if (discoveryException == null) {
+            log.info("Rpc client resource release completed and exited successfully.");
         }
     }
 }

@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import com.wxy.rpc.client.handler.RpcResponseHandler;
+import com.wxy.rpc.client.proxy.ProviderHealthManager;
 import com.wxy.rpc.client.transport.netty.NettyRpcClient;
 import com.wxy.rpc.consumer.config.BenchmarkAnnotationConfig;
 import com.wxy.rpc.consumer.controller.BenchmarkController;
@@ -55,6 +56,7 @@ public class BenchmarkTest {
 
     @Setup(org.openjdk.jmh.annotations.Level.Trial)
     public void setup() throws InterruptedException {
+        ProviderHealthManager.reset();
         String benchmarkProviders = System.getProperty("rpc.benchmark.providers");
         if (benchmarkProviders == null || benchmarkProviders.trim().isEmpty()) {
             context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
@@ -78,6 +80,8 @@ public class BenchmarkTest {
                 Thread.sleep(200L);
             }
         }
+        context.close();
+        ProviderHealthManager.reset();
         throw lastException;
     }
 
@@ -117,7 +121,10 @@ public class BenchmarkTest {
 
     @TearDown(org.openjdk.jmh.annotations.Level.Trial)
     public void tearDown() {
-        context.close();
+        if (context != null) {
+            context.close();
+        }
+        ProviderHealthManager.reset();
     }
 
     public static void main(String[] args) throws RunnerException {

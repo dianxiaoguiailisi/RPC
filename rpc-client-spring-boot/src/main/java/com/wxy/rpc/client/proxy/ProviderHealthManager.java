@@ -47,6 +47,17 @@ public class ProviderHealthManager {
     private static final long SERVER_LOAD_TTL_MILLIS = 45_000L;
 
     /**
+     * 清空客户端记录的 provider 状态。
+     *
+     * 主要用于同一个 JVM 内连续执行多个独立压测 Trial，避免前一轮的熔断、活动请求数和
+     * 响应时间统计污染下一轮结果。
+     */
+    public static void reset() {
+        PROVIDER_STATUS_MAP.clear();
+        SERVER_LOAD_STATUS_MAP.clear();
+    }
+
+    /**
      * 判断 provider 当前是否可用。
      *
      * 健康节点直接放行。
