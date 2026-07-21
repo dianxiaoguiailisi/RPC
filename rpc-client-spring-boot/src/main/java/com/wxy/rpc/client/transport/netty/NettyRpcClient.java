@@ -8,6 +8,9 @@ import com.wxy.rpc.core.codec.RpcFrameDecoder;
 import com.wxy.rpc.core.codec.SharableRpcMessageCodec;
 import com.wxy.rpc.core.exception.RpcException;
 import com.wxy.rpc.core.factory.SingletonFactory;
+import com.wxy.rpc.core.metrics.RpcMetricNames;
+import com.wxy.rpc.core.metrics.RpcMetricsCollector;
+import com.wxy.rpc.core.metrics.RpcMetricsContext;
 import com.wxy.rpc.core.protocol.RpcMessage;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -100,6 +103,7 @@ public class NettyRpcClient implements RpcClient {
         } catch (TimeoutException e) {
             int sequenceId = requestMetadata.getRpcMessage().getHeader().getSequenceId();
             RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
+            RpcMetricsContext.remove(sequenceId);
             responseFuture.setFailure(e);
             throw new RpcException(String.format("The Remote procedure call exceeded the specified timeout of %dms.",
                     timeout), e);
@@ -132,12 +136,16 @@ public class NettyRpcClient implements RpcClient {
                 promise.setTimeoutDeadlineMillis(System.currentTimeMillis() + timeout);
             }
             // 发送数据并监听发送状态
+            long writeStart = RpcMetricsCollector.now();
             channel.writeAndFlush(requestMetadata.getRpcMessage()).addListener((ChannelFutureListener) future -> {
+                RpcMetricsContext.InvocationInfo info = RpcMetricsContext.get(sequenceId);
+                RpcMetricsCollector.recordSince("client", info, RpcMetricNames.CLIENT_WRITE_COST, writeStart);
                 if (future.isSuccess()) {
                     log.debug("The client send the message successfully, msg: [{}].", requestMetadata);
                 } else {
                     future.channel().close();
                     RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
+                    RpcMetricsContext.remove(sequenceId);
                     promise.setFailure(future.cause());
                     log.error("The client send the message failed.", future.cause());
                 }
@@ -169,6 +177,7 @@ public class NettyRpcClient implements RpcClient {
                         "The Remote procedure call exceeded the specified timeout.");
                 if (promise.setFailure(timeoutException)) {
                     RpcResponseHandler.UNPROCESSED_RPC_RESPONSES.remove(sequenceId, promise);
+                    RpcMetricsContext.remove(sequenceId);
                 }
             }
         }

@@ -5,6 +5,7 @@
 # Log file
 *.log
 jmh-local-rpc-*.json
+benchmark-results/
 
 # BlueJ files
 *.ctxt

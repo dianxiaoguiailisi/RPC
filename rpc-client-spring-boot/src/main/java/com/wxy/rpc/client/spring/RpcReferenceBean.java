@@ -32,15 +32,21 @@ public class RpcReferenceBean<T> implements FactoryBean<T> {
     private final String loadbalance;
 
     /**
+     * 一致性哈希参与计算的参数下标。
+     */
+    private final int[] hashArguments;
+
+    /**
      * 客户端代理工厂，用于创建真正注入业务字段的远程代理对象。
      */
     private final ClientStubProxyFactory proxyFactory;
 
-    public RpcReferenceBean(Class<T> interfaceClass, String version, String loadbalance,
+    public RpcReferenceBean(Class<T> interfaceClass, String version, String loadbalance, int[] hashArguments,
                             ClientStubProxyFactory proxyFactory) {
         this.interfaceClass = interfaceClass;
         this.version = version;
         this.loadbalance = loadbalance;
+        this.hashArguments = hashArguments;
         this.proxyFactory = proxyFactory;
     }
 
@@ -54,7 +60,7 @@ public class RpcReferenceBean<T> implements FactoryBean<T> {
      */
     @Override
     public T getObject() {
-        return proxyFactory.getProxy(interfaceClass, version, loadbalance);
+        return proxyFactory.getProxy(interfaceClass, version, loadbalance, hashArguments);
     }
 
     /**

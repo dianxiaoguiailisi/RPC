@@ -15,16 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 一致性哈希负载均衡算法 <p>
- * 参考：<br>
- * <a href="https://github.com/apache/dubbo/blob/2d9583adf26a2d8bd6fb646243a9fe80a77e65d5/dubbo-cluster/src/main/java/org/apache/dubbo/rpc/cluster/loadbalance/ConsistentHashLoadBalance.java">dubbo一致性哈希算法</a><br>
- * <a href="https://cn.dubbo.apache.org/zh-cn/docsv2.7/dev/source/loadbalance/#23-consistenthashloadbalance">dubbo一致性哈希原理</a>
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName ConsistentHashLoadBalance
- * @Date 2023/1/8 12:10
  */
 public class ConsistentHashLoadBalance extends AbstractLoadBalance {
+
+    private static final int DEFAULT_REPLICA_NUMBER = 160;
+
+    private static final int[] DEFAULT_HASH_ARGUMENTS = new int[]{0};
 
     private final Map<String, ConsistentHashSelector> selectors = new ConcurrentHashMap<>();
 
@@ -37,26 +33,44 @@ public class ConsistentHashLoadBalance extends AbstractLoadBalance {
     public ServiceInfo doSelect(List<ServiceInfo> invokers, RpcRequest request) {
         // 得到请求的方法名称
         String method = request.getMethod();
+        int[] hashArguments = getHashArguments(request);
         // 构建对应的 key 值，key = 全限定类名 + "." + 方法名，比如 com.xxx.DemoService.sayHello
-        String key = request.getServiceName() + "." + method;
-        // 获取 invokers 原始的 hashCode
-        int identityHashCode = System.identityHashCode(invokers);
-        // 从 map 从获取对应的 selector
-        ConsistentHashSelector selector = selectors.get(key);
-        // 如果为 null，表示之前没有缓存过，如果 hashcode 不一致，表示缓存的服务列表发生变化
-        if (selector == null || selector.identityHashCode != identityHashCode) {
-            // 创建新的 selector 并缓存
-            selectors.put(key, new ConsistentHashSelector(invokers, 160, identityHashCode));
-            selector = selectors.get(key);
-        }
+        String key = request.getServiceName() + "." + method + "." + Arrays.toString(hashArguments);
+        // 根据服务列表内容计算 hash，只有 provider 列表真的变化时才重建哈希环。
+        int invokersHashCode = invokers.hashCode();
+        ConsistentHashSelector selector = selectors.compute(key, (selectorKey, oldSelector) -> {
+            if (oldSelector == null || oldSelector.invokersHashCode != invokersHashCode) {
+                return new ConsistentHashSelector(invokers, DEFAULT_REPLICA_NUMBER, invokersHashCode);
+            }
+            return oldSelector;
+        });
         // 调用 ConsistentHashSelector 的 select 方法选择 Invoker
-        String selectKey = key;
-        // 将 key 与 方法参数进行 hash 运算，因此 ConsistentHashLoadBalance 的负载均衡逻辑只受参数值影响，
-        // 具有相同参数值的请求将会被分配给同一个服务提供者。ConsistentHashLoadBalance 不关系权重
-        if (request.getParameterValues() != null && request.getParameterValues().length > 0) {
-            selectKey += Arrays.stream(request.getParameterValues());
-        }
+        String selectKey = buildSelectKey(request, hashArguments);
         return selector.select(selectKey);
+    }
+
+    private int[] getHashArguments(RpcRequest request) {
+        int[] hashArguments = request.getHashArguments();
+        if (hashArguments == null || hashArguments.length == 0) {
+            return DEFAULT_HASH_ARGUMENTS;
+        }
+        return hashArguments;
+    }
+
+    private String buildSelectKey(RpcRequest request, int[] hashArguments) {
+        StringBuilder selectKey = new StringBuilder(request.getServiceName())
+                .append(".")
+                .append(request.getMethod());
+        Object[] parameterValues = request.getParameterValues();
+        if (parameterValues == null || parameterValues.length == 0) {
+            return selectKey.toString();
+        }
+        for (int hashArgument : hashArguments) {
+            if (hashArgument >= 0 && hashArgument < parameterValues.length) {
+                selectKey.append(".").append(String.valueOf(parameterValues[hashArgument]));
+            }
+        }
+        return selectKey.toString();
     }
 
     private final static class ConsistentHashSelector {
@@ -67,23 +81,23 @@ public class ConsistentHashLoadBalance extends AbstractLoadBalance {
         private final TreeMap<Long, ServiceInfo> virtualInvokers;
 
         /**
-         * invokers 的原始哈希码
+         * provider 列表的内容哈希。
          */
-        private final int identityHashCode;
+        private final int invokersHashCode;
 
         /**
          * 构建一个 ConsistentHashSelector 对象
          *
          * @param invokers         存储虚拟节点
          * @param replicaNumber    虚拟节点数，默认为 160
-         * @param identityHashCode invokers 的原始哈希码
+         * @param invokersHashCode provider 列表的内容哈希
          */
-        public ConsistentHashSelector(List<ServiceInfo> invokers, int replicaNumber, int identityHashCode) {
+        public ConsistentHashSelector(List<ServiceInfo> invokers, int replicaNumber, int invokersHashCode) {
             this.virtualInvokers = new TreeMap<>();
-            this.identityHashCode = identityHashCode;
+            this.invokersHashCode = invokersHashCode;
 
             for (ServiceInfo invoker : invokers) {
-                String address = invoker.getAddress();
+                String address = invoker.getAddress() + ":" + invoker.getPort();
                 for (int i = 0; i < replicaNumber / 4; i++) {
                     // 对 address + i 进行 md5 运算，得到一个长度为16的字节数组
                     byte[] digest = md5(address + i);

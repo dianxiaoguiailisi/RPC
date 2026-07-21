@@ -22,6 +22,11 @@ public class RpcClientProperties {
     private String loadbalance;
 
     /**
+     * Parameter indexes used by consistent hash load balancing, default: 0.
+     */
+    private int[] consistentHashArguments;
+
+    /**
      * Serialization algorithm, candidate values include: (JDK, JSON, HESSIAN, KRYO, PROTOSTUFF), default: HESSIAN
      */
     private String serialization;
@@ -101,6 +106,7 @@ public class RpcClientProperties {
 
     public RpcClientProperties() {
         this.loadbalance = "random";
+        this.consistentHashArguments = new int[]{0};
         this.serialization = "HESSIAN";
         this.transport = "netty";
         this.registry = "zookeeper";

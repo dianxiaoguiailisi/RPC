@@ -7,6 +7,9 @@ import com.wxy.rpc.core.common.ServerLoadMetrics;
 import com.wxy.rpc.core.constant.ProtocolConstants;
 import com.wxy.rpc.core.enums.MessageType;
 import com.wxy.rpc.core.enums.SerializationType;
+import com.wxy.rpc.core.metrics.RpcMetricNames;
+import com.wxy.rpc.core.metrics.RpcMetricsCollector;
+import com.wxy.rpc.core.metrics.RpcMetricsContext;
 import com.wxy.rpc.core.protocol.MessageHeader;
 import com.wxy.rpc.core.protocol.RpcMessage;
 import io.netty.channel.ChannelFutureListener;
@@ -25,10 +28,6 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Rpc 响应消息处理器
  *
- * @author Wuxy
- * @version 1.0
- * @ClassName RpcResponseHandler
- * @Date 2023/1/6 19:07
  */
 @Slf4j
 public class RpcResponseHandler extends SimpleChannelInboundHandler<RpcMessage> {
@@ -48,11 +47,19 @@ public class RpcResponseHandler extends SimpleChannelInboundHandler<RpcMessage> 
                 // 拿到还未执行完成的 promise 对象
                 RpcPromise<RpcMessage> promise = UNPROCESSED_RPC_RESPONSES.remove(sequenceId);
                 if (promise != null) {
+                    RpcMetricsContext.InvocationInfo info = RpcMetricsContext.remove(sequenceId);
+                    long promiseStart = RpcMetricsCollector.now();
                     Exception exception = ((RpcResponse) msg.getBody()).getExceptionValue();
                     if (exception == null) {
                         promise.setSuccess(msg);
                     } else {
                         promise.setFailure(exception);
+                    }
+                    RpcMetricsCollector.recordSince("client", info, RpcMetricNames.CLIENT_PROMISE_COMPLETE_COST,
+                            promiseStart);
+                    if (info != null && info.getStartNanos() > 0) {
+                        RpcMetricsCollector.recordSince("client", info, RpcMetricNames.TOTAL_COST,
+                                info.getStartNanos());
                     }
                 }
             } else if (type == MessageType.HEARTBEAT_RESPONSE) { // 如果是心跳检查响应

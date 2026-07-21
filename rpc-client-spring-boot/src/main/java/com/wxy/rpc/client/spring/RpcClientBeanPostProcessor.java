@@ -11,6 +11,7 @@ import org.springframework.beans.factory.config.InstantiationAwareBeanPostProces
 import org.springframework.beans.PropertyValues;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 
 /**
  * 客户端 RPC 引用注入处理器。
@@ -26,10 +27,6 @@ import java.lang.reflect.Field;
  *
  * 同时，这里不再直接临时创建代理对象，而是为每个远程引用创建 RpcReferenceBean。
  * RpcReferenceBean 是一个 FactoryBean，负责管理远程服务接口、版本号和代理对象创建逻辑。
- *
- * @author Wuxy
- * @version 1.0
- * @see com.wxy.rpc.client.annotation.RpcReference
  */
 public class RpcClientBeanPostProcessor implements InstantiationAwareBeanPostProcessor, BeanFactoryAware {
     //代理工厂
@@ -101,7 +98,8 @@ public class RpcClientBeanPostProcessor implements InstantiationAwareBeanPostPro
                         clazz = rpcReference.interfaceClass();
                     }
                     // 创建或复用 RpcReferenceBean，并通过 FactoryBean 获取真正要注入的远程代理对象。
-                    Object proxy = getReferenceProxy(clazz, rpcReference.version(), rpcReference.loadbalance());
+                    Object proxy = getReferenceProxy(clazz, rpcReference.version(), rpcReference.loadbalance(),
+                            rpcReference.hashArguments());
                     // 关闭安全检查
                     field.setAccessible(true);
                     // 设置域的值为代理对象
@@ -128,11 +126,13 @@ public class RpcClientBeanPostProcessor implements InstantiationAwareBeanPostPro
      * @return 远程服务代理对象
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private Object getReferenceProxy(Class<?> clazz, String version, String loadbalance) {
+    private Object getReferenceProxy(Class<?> clazz, String version, String loadbalance, int[] hashArguments) {
         String effectiveLoadbalance = proxyFactory.resolveLoadBalanceName(loadbalance);
-        String referenceBeanName = buildReferenceBeanName(clazz, version, effectiveLoadbalance);
+        String referenceBeanName = buildReferenceBeanName(clazz, version, effectiveLoadbalance, hashArguments);
+
         if (!beanFactory.containsSingleton(referenceBeanName)) {
-            RpcReferenceBean referenceBean = new RpcReferenceBean(clazz, version, effectiveLoadbalance, proxyFactory);
+            RpcReferenceBean referenceBean = new RpcReferenceBean(clazz, version, effectiveLoadbalance,
+                    hashArguments, proxyFactory);
             beanFactory.registerSingleton(referenceBeanName, referenceBean);
         }
         return beanFactory.getBean(referenceBeanName);
@@ -146,7 +146,8 @@ public class RpcClientBeanPostProcessor implements InstantiationAwareBeanPostPro
      * @param loadbalance 负载均衡策略
      * @return ReferenceBean 名称
      */
-    private String buildReferenceBeanName(Class<?> clazz, String version, String loadbalance) {
-        return String.format("rpcReferenceBean:%s:%s:%s", clazz.getName(), version, loadbalance);
+    private String buildReferenceBeanName(Class<?> clazz, String version, String loadbalance, int[] hashArguments) {
+        return String.format("rpcReferenceBean:%s:%s:%s:%s", clazz.getName(), version, loadbalance,
+                Arrays.toString(hashArguments));
     }
 }

@@ -6,6 +6,7 @@ import ch.qos.logback.classic.LoggerContext;
 import com.wxy.rpc.client.handler.RpcResponseHandler;
 import com.wxy.rpc.client.transport.netty.NettyRpcClient;
 import com.wxy.rpc.consumer.config.BenchmarkAnnotationConfig;
+import com.wxy.rpc.consumer.controller.BenchmarkController;
 import com.wxy.rpc.consumer.controller.HelloController;
 import lombok.extern.slf4j.Slf4j;
 import org.openjdk.jmh.annotations.*;
@@ -38,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class BenchmarkTest {
     private HelloController helloController;
+    private BenchmarkController benchmarkController;
     private AnnotationConfigApplicationContext context;
 
     static {
@@ -53,12 +55,23 @@ public class BenchmarkTest {
 
     @Setup(org.openjdk.jmh.annotations.Level.Trial)
     public void setup() throws InterruptedException {
-        context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
+        String benchmarkProviders = System.getProperty("rpc.benchmark.providers");
+        if (benchmarkProviders == null || benchmarkProviders.trim().isEmpty()) {
+            context = new AnnotationConfigApplicationContext(BenchmarkAnnotationConfig.class);
+        } else {
+            context = new AnnotationConfigApplicationContext();
+            context.getBeanFactory().registerSingleton("serviceDiscovery",
+                    BenchmarkAnnotationConfig.createBenchmarkServiceDiscovery(benchmarkProviders));
+            context.register(BenchmarkAnnotationConfig.class);
+            context.refresh();
+        }
         helloController = context.getBean("helloController", HelloController.class);
+        benchmarkController = context.getBean("benchmarkController", BenchmarkController.class);
         RuntimeException lastException = null;
         for (int i = 0; i < 10; i++) {
             try {
                 helloController.hello("warmup");
+                benchmarkController.ping("warmup");
                 return;
             } catch (RuntimeException e) {
                 lastException = e;
@@ -85,6 +98,21 @@ public class BenchmarkTest {
                 log.debug("Async rpc call failed.", throwable);
             }
         });
+    }
+
+    @Benchmark
+    public void testBenchmarkPing() {
+        benchmarkController.ping("zhangsan");
+    }
+
+    @Benchmark
+    public void testBenchmarkCpu() {
+        benchmarkController.cpu(10000);
+    }
+
+    @Benchmark
+    public void testBenchmarkIo() {
+        benchmarkController.io(10);
     }
 
     @TearDown(org.openjdk.jmh.annotations.Level.Trial)

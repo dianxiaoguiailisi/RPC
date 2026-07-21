@@ -9,6 +9,9 @@ import com.wxy.rpc.core.common.ServiceInfo;
 import com.wxy.rpc.core.discovery.ServiceDiscovery;
 import com.wxy.rpc.core.exception.RpcException;
 import com.wxy.rpc.core.loadbalance.LoadBalance;
+import com.wxy.rpc.core.metrics.RpcMetricNames;
+import com.wxy.rpc.core.metrics.RpcMetricsCollector;
+import com.wxy.rpc.core.metrics.RpcMetricsContext;
 import com.wxy.rpc.core.protocol.MessageHeader;
 import com.wxy.rpc.core.protocol.RpcMessage;
 import lombok.extern.slf4j.Slf4j;
@@ -46,8 +49,16 @@ public class RemoteMethodCall {
     public static Object remoteCall(ServiceDiscovery discovery, RpcClient rpcClient, String serviceName,
                                     RpcClientProperties properties, LoadBalance loadBalance, Method method,
                                     Object[] args) {
+        return remoteCall(discovery, rpcClient, serviceName, properties, loadBalance, method, args,
+                properties.getConsistentHashArguments());
+    }
+
+    public static Object remoteCall(ServiceDiscovery discovery, RpcClient rpcClient, String serviceName,
+                                    RpcClientProperties properties, LoadBalance loadBalance, Method method,
+                                    Object[] args, int[] hashArguments) {
         try {
-            return remoteCallAsync(discovery, rpcClient, serviceName, properties, loadBalance, method, args).get();
+            return remoteCallAsync(discovery, rpcClient, serviceName, properties, loadBalance, method, args,
+                    hashArguments).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RpcException("Remote procedure call was interrupted.", e);
@@ -85,12 +96,24 @@ public class RemoteMethodCall {
     public static CompletableFuture<Object> remoteCallAsync(ServiceDiscovery discovery, RpcClient rpcClient,
                                                             String serviceName, RpcClientProperties properties,
                                                             LoadBalance loadBalance, Method method, Object[] args) {
+        return remoteCallAsync(discovery, rpcClient, serviceName, properties, loadBalance, method, args,
+                properties.getConsistentHashArguments());
+    }
+
+    public static CompletableFuture<Object> remoteCallAsync(ServiceDiscovery discovery, RpcClient rpcClient,
+                                                            String serviceName, RpcClientProperties properties,
+                                                            LoadBalance loadBalance, Method method, Object[] args,
+                                                            int[] hashArguments) {
+        long proxyStart = RpcMetricsCollector.now();
         // 构建请求体
         RpcRequest request = new RpcRequest();
         request.setServiceName(serviceName);
         request.setMethod(method.getName());
         request.setParameterTypes(method.getParameterTypes());
         request.setParameterValues(args);
+        request.setHashArguments(hashArguments);
+        RpcMetricsCollector.recordSince("client", serviceName, method.getName(), RpcMetricNames.CLIENT_PROXY_COST,
+                proxyStart);
 
         int retries = properties.getRetries() == null ? 0 : Math.max(properties.getRetries(), 0);
         int maxAttempts = retries + 1;
@@ -159,7 +182,10 @@ public class RemoteMethodCall {
     private static ServiceInfo selectServiceInfo(ServiceDiscovery discovery, RpcRequest request,
                                                  List<ServiceInfo> triedServices, LoadBalance loadBalance) {
         try {
+            long discoveryStart = RpcMetricsCollector.now();
             List<ServiceInfo> services = discovery.getServices(request.getServiceName());
+            RpcMetricsCollector.recordSince("client", request.getServiceName(), request.getMethod(),
+                    RpcMetricNames.CLIENT_DISCOVERY_COST, discoveryStart);
             if (services != null) {
                 List<ServiceInfo> availableServices = new ArrayList<>(services.size());
                 for (ServiceInfo serviceInfo : services) {
@@ -167,7 +193,11 @@ public class RemoteMethodCall {
                         availableServices.add(serviceInfo);
                     }
                 }
-                return loadBalance.select(availableServices, request);
+                long loadBalanceStart = RpcMetricsCollector.now();
+                ServiceInfo selected = loadBalance.select(availableServices, request);
+                RpcMetricsCollector.recordSince("client", request.getServiceName(), request.getMethod(),
+                        RpcMetricNames.CLIENT_LOAD_BALANCE_COST, loadBalanceStart);
+                return selected;
             }
         } catch (Exception e) {
             throw new RpcException(String.format("Remote service discovery did not find service %s.",
@@ -206,8 +236,10 @@ public class RemoteMethodCall {
 
     private static CompletableFuture<Object> doRemoteCallAsync(RpcClient rpcClient, RpcClientProperties properties,
                                                                RpcRequest request, ServiceInfo serviceInfo) {
+        long totalStart = RpcMetricsCollector.now();
         // 构建请求头
         MessageHeader header = MessageHeader.build(properties.getSerialization());
+        RpcMetricsContext.register(header.getSequenceId(), request.getServiceName(), request.getMethod(), totalStart);
         // 构建通信协议信息
         RpcMessage rpcMessage = new RpcMessage();
         rpcMessage.setHeader(header);
@@ -220,7 +252,12 @@ public class RemoteMethodCall {
                 .port(serviceInfo.getPort())
                 .timeout(properties.getTimeout()).build();
 
-        return rpcClient.sendRpcRequestAsync(metadata).thenApply(responseRpcMessage -> {
+        long waitStart = RpcMetricsCollector.now();
+        CompletableFuture<RpcMessage> responseFuture = rpcClient.sendRpcRequestAsync(metadata);
+        responseFuture.whenComplete((responseRpcMessage, throwable) ->
+                RpcMetricsCollector.recordSince("client", request.getServiceName(), request.getMethod(),
+                        RpcMetricNames.CLIENT_WAIT_RESPONSE_COST, waitStart));
+        return responseFuture.thenApply(responseRpcMessage -> {
             if (responseRpcMessage == null) {
                 throw new RpcException("Remote procedure call timeout.");
             }

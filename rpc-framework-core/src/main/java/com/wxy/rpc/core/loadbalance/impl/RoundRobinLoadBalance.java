@@ -9,11 +9,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 轮询负载均衡算法
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName RoundRobinLoadBalance
- * @Date 2023/1/8 12:14
  */
 public class RoundRobinLoadBalance extends AbstractLoadBalance {
 

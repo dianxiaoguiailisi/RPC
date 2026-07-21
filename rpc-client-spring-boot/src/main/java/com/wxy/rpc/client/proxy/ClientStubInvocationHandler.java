@@ -38,24 +38,30 @@ public class ClientStubInvocationHandler implements InvocationHandler {
      */
     private final String serviceName;
 
+    /**
+     * 一致性哈希参与计算的参数下标。
+     */
+    private final int[] hashArguments;
 
     public ClientStubInvocationHandler(ServiceDiscovery serviceDiscovery, RpcClient rpcClient,
-                                       RpcClientProperties properties, LoadBalance loadBalance, String serviceName) {
+                                       RpcClientProperties properties, LoadBalance loadBalance, String serviceName,
+                                       int[] hashArguments) {
         this.serviceDiscovery = serviceDiscovery;
         this.rpcClient = rpcClient;
         this.properties = properties;
         this.loadBalance = loadBalance;
         this.serviceName = serviceName;
+        this.hashArguments = hashArguments;
     }
 
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         if (RemoteMethodCall.isAsyncReturn(method)) {
             return RemoteMethodCall.remoteCallAsync(serviceDiscovery, rpcClient, serviceName, properties, loadBalance,
-                    method, args);
+                    method, args, hashArguments);
         }
         // 执行远程方法调用，直接返回远程调用的结果
         return RemoteMethodCall.remoteCall(serviceDiscovery, rpcClient, serviceName, properties, loadBalance, method,
-                args);
+                args, hashArguments);
     }
 }

@@ -53,6 +53,14 @@ public @interface RpcReference {
     String loadbalance() default "";
 
     /**
+     * 一致性哈希参与计算的参数下标。
+     *
+     * 只有当前引用使用 consistentHash 负载均衡时生效。
+     * 默认使用第 0 个参数，例如 getUser(userId) 会按 userId 稳定路由。
+     */
+    int[] hashArguments() default {0};
+
+    /**
      * Mock 服务名称。
      *
      * 当前代码链路中没有完整实现 mock 调用逻辑，保留作服务降级或本地 mock 扩展点。

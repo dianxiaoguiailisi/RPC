@@ -6,6 +6,9 @@ import com.wxy.rpc.core.common.ServerLoadMetrics;
 import com.wxy.rpc.core.constant.ProtocolConstants;
 import com.wxy.rpc.core.enums.MessageType;
 import com.wxy.rpc.core.enums.SerializationType;
+import com.wxy.rpc.core.metrics.RpcMetricNames;
+import com.wxy.rpc.core.metrics.RpcMetricsCollector;
+import com.wxy.rpc.core.metrics.RpcMetricsContext;
 import com.wxy.rpc.core.protocol.MessageHeader;
 import com.wxy.rpc.core.protocol.RpcMessage;
 import com.wxy.rpc.core.serialization.Serialization;
@@ -35,14 +38,6 @@ import java.util.List;
  *  |                        消息内容 (不固定长度)                         |
  *  -------------------------------------------------------------------
  * </pre>
- *
- * @author Wuxy
- * @version 1.0
- * @ClassName SharableRpcMessageCodec
- * @Date 2023/1/4 23:51
- * @see io.netty.handler.codec.MessageToMessageCodec
- * @see io.netty.channel.ChannelInboundHandlerAdapter
- * @see io.netty.channel.ChannelOutboundHandlerAdapter
  */
 @Sharable
 public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcMessage> {
@@ -50,6 +45,7 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
     // 编码器为出站处理，将 RpcMessage 编码为 ByteBuf 对象
     @Override
     protected void encode(ChannelHandlerContext ctx, RpcMessage msg, List<Object> out) throws Exception {
+        long encodeStart = RpcMetricsCollector.now();
         ByteBuf buf = ctx.alloc().buffer();
         MessageHeader header = msg.getHeader();
         // 4字节 魔数
@@ -82,11 +78,13 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
 
         // 传递到下一个出站处理器
         out.add(buf);
+        recordEncodeMetric(msg, encodeStart);
     }
 
     // 解码器为入站处理，将 ByteBuf 对象解码成 RpcMessage 对象
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
+        long decodeStart = RpcMetricsCollector.now();
         // 4字节 魔数
         int len = ProtocolConstants.MAGIC_NUM.length;
         byte[] magicNum = new byte[len];
@@ -138,6 +136,7 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
             // 进行反序列化
             RpcRequest request = deserializeBody(serialization, RpcRequest.class, bodyBuf);
             protocol.setBody(request);
+            RpcMetricsContext.register(sequenceId, request.getServiceName(), request.getMethod(), 0L);
         } else if (type == MessageType.RESPONSE) {
             // 进行反序列化
             RpcResponse response = deserializeBody(serialization, RpcResponse.class, bodyBuf);
@@ -158,9 +157,42 @@ public class SharableRpcMessageCodec extends MessageToMessageCodec<ByteBuf, RpcM
         }
         // 传递到下一个处理器
         out.add(protocol);
+        recordDecodeMetric(protocol, decodeStart);
     }
 
     private <T> T deserializeBody(Serialization serialization, Class<T> clazz, ByteBuf bodyBuf) {
         return serialization.deserialize(clazz, new ByteBufInputStream(bodyBuf));
+    }
+
+    private void recordEncodeMetric(RpcMessage msg, long encodeStart) {
+        if (!RpcMetricsCollector.isEnabled()) {
+            return;
+        }
+        MessageType type = MessageType.parseByType(msg.getHeader().getMessageType());
+        Object body = msg.getBody();
+        if (type == MessageType.REQUEST && body instanceof RpcRequest) {
+            RpcRequest request = (RpcRequest) body;
+            RpcMetricsCollector.recordSince("client", request.getServiceName(), request.getMethod(),
+                    RpcMetricNames.CLIENT_ENCODE_COST, encodeStart);
+        } else if (type == MessageType.RESPONSE) {
+            RpcMetricsContext.InvocationInfo info = RpcMetricsContext.get(msg.getHeader().getSequenceId());
+            RpcMetricsCollector.recordSince("server", info, RpcMetricNames.SERVER_ENCODE_COST, encodeStart);
+        }
+    }
+
+    private void recordDecodeMetric(RpcMessage msg, long decodeStart) {
+        if (!RpcMetricsCollector.isEnabled()) {
+            return;
+        }
+        MessageType type = MessageType.parseByType(msg.getHeader().getMessageType());
+        Object body = msg.getBody();
+        if (type == MessageType.REQUEST && body instanceof RpcRequest) {
+            RpcRequest request = (RpcRequest) body;
+            RpcMetricsCollector.recordSince("server", request.getServiceName(), request.getMethod(),
+                    RpcMetricNames.SERVER_DECODE_COST, decodeStart);
+        } else if (type == MessageType.RESPONSE) {
+            RpcMetricsContext.InvocationInfo info = RpcMetricsContext.get(msg.getHeader().getSequenceId());
+            RpcMetricsCollector.recordSince("client", info, RpcMetricNames.CLIENT_DECODE_COST, decodeStart);
+        }
     }
 }
